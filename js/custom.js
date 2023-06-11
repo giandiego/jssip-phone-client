@@ -15,10 +15,14 @@ let remoteDetail = remoteDevice[0];
 let soundDevice = $("#songs");
 let soundDetail = soundDevice[0];
 
+var myCandidateTimeout = null;
+
+
 let callOptions = {
 	pcConfig: {
 		hackStripTcp: true,
-		iceServers: []
+		rtcpMuxPolicy: 'negotiate',
+		iceServers: [{ 'urls':['stun:stun.l.google.com:19302']}]
 	},
 	mediaConstraints: {
 		audio: true, 
@@ -137,7 +141,13 @@ $("#status").click(function() {
 		});
 
 		phone.on("registrationFailed", (e) => {
-			swal("Error", e.cause, "error");
+
+			if (e.cause = 'Rejected') {
+				swal("Error al intentar registrar", 'La extensión que intenta registrar no es WEBRTC, comunicarse con el Administrador', "error");
+			} else {
+				swal("Error al intentar registrar", e.cause, "error");
+			}
+			
 		});
 
 		phone.on("unregistered", () => {
@@ -150,14 +160,41 @@ $("#status").click(function() {
 			if (session) session.terminate();
 			session = newSession;
 
+			session.on("icecandidate", function (event) {
+				//console.log('getting a candidate' + event.candidate.candidate);
+				if (event.candidate.type === "srflx" &&
+					event.candidate.relatedAddress !== null &&
+					event.candidate.relatedPort !== null) {
+					event.ready();
+				}
+			});
+
 			session.on('peerconnection', function() {
 				if (session.direction === 'incoming') streamReroute();
 			});
 
-			session.on("progress", () => {
-				clearInterval(watchStatus);
-				playSong("sounds/ringing.mp3", true);
-				$("#status").html("Ringing...");
+			// session.on("progress", () => {
+			// 	clearInterval(watchStatus);
+			// 	playSong("sounds/ringing.mp3", true);
+			// 	$("#status").html("Ringing...");
+			// });
+
+			session.on("progress", (data) => {
+				let response = data.response;
+
+				if (response?.status_code == 183 && response?.body /*&& session.hasOffer && !session.dialog*/){
+					console.log("LLAMADA CON EARLY MEDIA..... ====>")
+					clearInterval(watchStatus);
+					//playSong("sounds/ringing.mp3", true);
+					$("#status").html("Ringing...");
+					console.log("<======== fin =====>")
+				}else{
+					clearInterval(watchStatus);
+					playSong("sounds/ringing.mp3", true);
+					$("#status").html("Ringing...");
+				}
+
+				
 			});
 
 			session.on("confirmed", () => {
@@ -193,13 +230,13 @@ $("#status").click(function() {
 				swal({
 					closeOnEsc: false,
 					closeOnClickOutside: false,
-					title: "Incoming call",
-					text: "from: " + session.remote_identity.display_name,
+					title: "Llamada entrante",
+					text: "Desde: " + session.remote_identity.display_name,
 					icon: "info",
 					buttons: {
-						cancel: "Reject",
+						cancel: "Cancelar",
 						catch: {
-							text: "Accept",
+							text: "Aceptar",
 							value: "true"
 						},
 					},
@@ -279,7 +316,7 @@ $("#mute").click(function(){
 // transfer
 $("#transfer").click(function(){
 	if (session && session.isEstablished) {
-		swal("Перевод на номер:", {
+		swal("Transferir al número:", {
 			content: "input",
 		})
 		.then(function(e) {
